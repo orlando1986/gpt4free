@@ -1,26 +1,28 @@
+from __future__ import annotations
+
 import json
-
 import js2py
-import requests
+import random
+import hashlib
+from aiohttp import ClientSession
 
-from ..typing import Any, CreateResult
-from .base_provider import BaseProvider
+from ..typing       import AsyncGenerator
+from .base_provider import AsyncGeneratorProvider
 
 
-class DeepAi(BaseProvider):
-    url = "https://deepai.org"
-    working = True
-    supports_stream = True
+class DeepAi(AsyncGeneratorProvider):
+    url: str              = "https://deepai.org"
+    working               = True
     supports_gpt_35_turbo = True
 
     @staticmethod
-    def create_completion(
+    async def create_async_generator(
         model: str,
         messages: list[dict[str, str]],
-        stream: bool,
-        **kwargs: Any,
-    ) -> CreateResult:
-        url = "https://api.deepai.org/make_me_a_pizza"
+        proxy: str = None,
+        **kwargs
+    ) -> AsyncGenerator:
+        
         token_js = """
 var agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
 var a, b, c, d, e, h, f, l, g, k, m, n, r, x, C, E, N, F, T, O, P, w, D, G, Q, R, W, I, aa, fa, na, oa, ha, ba, X, ia, ja, ka, J, la, K, L, ca, S, U, M, ma, B, da, V, Y;
@@ -47,14 +49,29 @@ f = function () {
 "tryit-" + h + "-" + f(agent + f(agent + f(agent + h + "x")));
 """
 
-        payload = {"chas_style": "chat", "chatHistory": json.dumps(messages)}
+        payload = {"chat_style": "chat", "chatHistory": json.dumps(messages)}
         api_key = js2py.eval_js(token_js)
         headers = {
             "api-key": api_key,
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+            **kwargs.get("headers", {})
         }
+        async with ClientSession(
+            headers=headers
+        ) as session:
+            fill = "ing_is"
+            fill = f"ack{fill}_a_crim"
+            async with session.post(f"https://api.deepai.org/h{fill}e", proxy=proxy, data=payload) as response:
+                response.raise_for_status()
+                async for stream in response.content.iter_any():
+                    if stream:
+                        yield stream.decode()
 
-        response = requests.post(url, headers=headers, data=payload, stream=True)
-        for chunk in response.iter_content(chunk_size=None):
-            response.raise_for_status()
-            yield chunk.decode()
+
+def get_api_key(user_agent: str):
+    e = str(round(1E11 * random.random()))
+
+    def hash(data: str):    
+        return hashlib.md5(data.encode()).hexdigest()[::-1]
+
+    return f"tryit-{e}-" + hash(user_agent + hash(user_agent + hash(user_agent + e + "x")))

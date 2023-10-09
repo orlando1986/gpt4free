@@ -1,61 +1,40 @@
-import re
-import urllib.parse
+from __future__ import annotations
+
 import json
 
-from curl_cffi import requests
+from ..requests import StreamSession
+from ..typing import AsyncGenerator, Messages
+from .base_provider import AsyncGeneratorProvider, format_prompt
 
-from ..typing import Any, CreateResult
-from .base_provider import BaseProvider
 
-
-class You(BaseProvider):
+class You(AsyncGeneratorProvider):
     url = "https://you.com"
     working = True
     supports_gpt_35_turbo = True
 
-    @staticmethod
-    def create_completion(
+
+    @classmethod
+    async def create_async_generator(
+        cls,
         model: str,
-        messages: list[dict[str, str]],
-        stream: bool,
-        **kwargs: Any,
-    ) -> CreateResult:
-        url_param = _create_url_param(messages, kwargs.get("history", []))
-        headers = _create_header()
-        url = f"https://you.com/api/streamingSearch?{url_param}"
-        response = requests.get(
-            url,
-            headers=headers,
-            impersonate="chrome107",
-        )
-        response.raise_for_status()
-        
-        start = 'data: {"youChatToken": '
-        for line in response.content.splitlines():
-            line = line.decode('utf-8')
-            if line.startswith(start):
-                yield json.loads(line[len(start): -1])
-
-def _create_url_param(messages: list[dict[str, str]], history: list[dict[str, str]]):
-    prompt = ""
-    for message in messages:
-        prompt += "%s: %s\n" % (message["role"], message["content"])
-    prompt += "assistant:"
-    chat = _convert_chat(history)
-    param = {"q": prompt, "domain": "youchat", "chat": chat}
-    return urllib.parse.urlencode(param)
-
-
-def _convert_chat(messages: list[dict[str, str]]):
-    message_iter = iter(messages)
-    return [
-        {"question": user["content"], "answer": assistant["content"]}
-        for user, assistant in zip(message_iter, message_iter)
-    ]
-
-
-def _create_header():
-    return {
-        "accept": "text/event-stream",
-        "referer": "https://you.com/search?fromSearchBar=true&tbm=youchat",
-    }
+        messages: Messages,
+        proxy: str = None,
+        timeout: int = 120,
+        **kwargs,
+    ) -> AsyncGenerator:
+        async with StreamSession(proxies={"https": proxy}, impersonate="chrome107", timeout=timeout) as session:
+            headers = {
+                "Accept": "text/event-stream",
+                "Referer": f"{cls.url}/search?fromSearchBar=true&tbm=youchat",
+            }
+            data = {"q": format_prompt(messages), "domain": "youchat", "chat": ""}
+            async with session.get(
+                f"{cls.url}/api/streamingSearch",
+                params=data,
+                headers=headers
+            ) as response:
+                response.raise_for_status()
+                start = b'data: {"youChatToken": '
+                async for line in response.iter_lines():
+                    if line.startswith(start):
+                        yield json.loads(line[len(start):-1])
